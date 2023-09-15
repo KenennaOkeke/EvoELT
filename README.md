@@ -133,6 +133,10 @@ returns
       {
         "raw_item_id": "45f1af40-5d75-4375-b9f5-fe6d40b0a01a",
         "data": "ABC"
+      },
+      {
+        "raw_item_id": "c87880c6-0506-49d1-a570-f50198f867fd",
+        "data": "ABCD"
       }
     ]
   }
