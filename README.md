@@ -1,173 +1,178 @@
 ## About EvoELT
+EvoELT seamlessly bridges raw and processed events from batched processing! It ensures that your ELT warehouse remains dynamic and adaptable whether you're aiming for retrospective re-evaluations of data, recognizing intricate event patterns, learn from datasets, or enhance your event processing capabilities.
 
-EvoELT is a tool designed to seamlessly bridge raw and transformed data. It not only accommodates real-time data changes and version history but also allows for a retrospective re-evaluation of data, empowering businesses to continuously refine their insights. Whether you're aiming to recognize intricate data patterns, refine your datasets, or simply enhance your data processing capabilities, EvoELT ensures that your ELT data warehouse remains dynamic, adaptable, and insightful.
-
-### About EvoELT - technical version
-EvoELT is a flexible microservice designed to streamline the transfer of both raw and transformed data into a data warehouse. By utilizing message queues, it accommodates evolving transformations and data versions. This ensures historical transformations can be reprocessed and adjusted based on newer insights.
+### Technical Overview
+EvoELT is a flexible microservice designed to streamline the transfer of both a raw event, and its processed counterpart(s) into a database. Through AWS SQS (Amazon Simple Queue Service), it accommodates evolving transformations and processed versions. Historical transformations can be reprocessed and adjusted based on newer insights, all dependent on your processing application.
 
 ## Table of Contents
-
 - [About EvoELT](#about-evoelt)
-  - [Technical About](#about-evoelt---technical-version)
-- [Project Status](#project-status)
-- [Use cases EvoELT enables](#use-cases-evoelt-enables)
-- [Running EvoELT](#running-evoelt)
-  - [Requirements](#requirements)
-  - [Environment Variables](#environment-variables)
-- [Implementing EvoELT](#implementing-evoelt)
-  - [Definitions](#definitions)
-  - [Process](#process)
+- [Use Cases](#architecture-and-uses)
 - [DB Schema](#db-schema)
-- [Objects Schema](#objects-schema)
-- [Feedback and Support](#feedback-and-support)
-- [Contributing](#contributing)
-- [Roadmap](#roadmap)
-- [License](#license)
+- [Object Movement](#object-movement)
+- [Requirements](#requirements)
+- [Testing & Running Locally](#testing--running-locally)
+- [Dockerization](#dockerization)
 
-
-## Project Status
-**Current Status:** Pre-development
-
-EvoELT is currently in the planning and design phase. The codebase has not been initiated yet. Keep an eye on this repository for updates on the development progress. Feedback at this stage is highly valuable as it can shape the future direction of the project.
-
-## Use cases EvoELT enables
-- **Pattern Recognition**
-  - Detect outliers and make predictions.
-
-- **Anomaly Detection & Data Refinement**
-  - Understand past anomalies to improve future data transformations.
-
-- **Data Tagging**
-  - Label data for efficient categorization and retrieval.
-
-- **Reprocessing Transformations**
-  - Gain new insights from old data.
-
-
-Simplified example use case: Assume we have the following raw items (A, AB, ABC, ABCD) and the following transformed items (A, BA, CBA, DCBA). With deep learning we can identify or learn the reverse string count pattern (XYZ -> ZYX) without having access to the transformation application. Once the pattern has been recognised, we can detect potential anomalies and later reprocess raw data as the transformation application evolves.
-
-## Running EvoELT
-
-Clone and build locally, or use the container available on Docker Hub: `docker pull kenennaokeke/evoelt:latest`
-
-### Requirements
-- **Database (select from below)**
-  - postgres
-- **Message Queue (select from below)**
-  - AWS SQS (standard)
-
-### Environment Variables
-
-| Variable                | Description                                         | Default        | Required |
-|-------------------------|-----------------------------------------------------|----------------|----------|
-| `EE_DB_HOST`            | The database's hostname                             | --             | Yes      |
-| `EE_DB_NAME`            | The database's name                                 | --             | Yes      |
-| `EE_DB_USER`            | The database user                                   | --             | Yes      |
-| `EE_DB_PASSWORD`        | The database user's password                        | --             | Yes      |
-| `EE_MQ_CONSUMER_NAME`   | The name of the message queue to listen to          | --             | Yes      |
-| `EE_MQ_PRODUCER_NAMES`  | Names of the message queues to send messages to     | --             | Yes      |
-| `EE_DB_TABLE_PREFIX`    | The database tables prefix                          | `ee_`          | No       |
-| `EE_DB_DRIVER`          | The database type                                   | `postgres`     | No       |
-| `EE_MQ_CONSUMER_DRIVER` | The message queue type                              | `SQS`          | No       |
-| `EE_MQ_PRODUCER_DRIVER` | The message queue type                              | `SQS`          | No       |
-
-*`EE_MQ_PRODUCER_NAMES` - if multiple producers, separate them by a semicolon (`;`) without a backslash escape (`\ `) before the semicolon (`;`). If any of the producer names contain a semicolon, add a backslash before the semicolon: `\;`*
-
-## Implementing EvoELT
-
+## Architecture and Uses
 ### Definitions
-- Item: Each unique data:label combination
-- Collection: All items grouped by label
-- Raw: Information before transformation
-- Transformed: Information after transformation
+- Raw Event: Input information
+- Raw Sequence: Input information grouped by label
+- Processed Event: Output information
+- Processed Sequence: Output information grouped by label
 
-### Process
-![EvoELT Sequence Diagram](art/microservice_sequence_diagram.png)
+*Therefore, a single raw event may have multiple processed events.*
 
-The extraction application (your service) sends data to be transformed with labels (Example: `[user_id: 3, object_id: 5]`) to EvoELT via message queue. EvoELT stores the data/labels in the data warehouse (grouped by the label) and lets your transformation applications (your service(s)) know which `raw_item_id` to later lookup via message queue (as two items may be added almost at the same time, but we want a different transformations for each). The transformation application fetches the raw collection of items including labels from EvoELT via a REST API call. The transformation application sends the transformation result with labels and `raw_item_id` back to EvoELT via message queue. EvoELT stores the information from the message queue. The transformation application can also interact with your own service/application to store/update the transformation result by reading the labels returned in the EvoELT fetch request previously mentioned.
+### High Level Architecture
+Assume we have the following raw events sent (A, AB, ABC, ABCD) and the following processed events received (A, BA, CBA, DCBA). With deep learning we can identify or learn the reverse string count pattern (XYZ -> ZYX) without having access to the event processing application. Once a pattern has been recognised, potential anomalies can be detected. This would allow for a correction later on, since maybe instead of receiving DCBA we should have received ZYWX.
 
-*If using a Standard SQS Queue, each application that handles transformation should have a lock on `raw_item_id` as SQS may send more than one message (duplicate) to your consumer.*
+### Medium Level Architecture
+- Each raw event represents a score:game_session_number relationship.
+- After submitting raw events to EvoELT (via the score:game_session_number relationship), EvoELT receives three transformations (mean, median, and mode) from the batch processing application.
+- The processing application has access to a paginated list of previous plays (raw events) to generate statistics (processed events).
+
+### Low Level Architecture
+![EvoELT Sequence Diagram](art/microservice_sequence_diagram_low.png)
+
+The external application (service A) send an event with the labels `[user_id: 3, object_id: 5]` to EvoELT via message queue. EvoELT stores the data/labels (grouped by label via a raw sequence) and lets your processing/transformation application (service B) know which `raw_event_id` to later fetch through a REST GET request (as two events may be sent at the same time, but we want a new transformation for each new event, and we may want to accurately order historical events used). The processing application fetches the raw sequence of events including labels from EvoELT via a REST API call. The processing application sends the result with labels(optional) and `raw_event_id` back to EvoELT via message queue; each label differentiation sent will create a new processed sequence; a new processed event would also be created linked to the raw_event_id.
 
 ## DB Schema
 ![EvoELT DB Schema](art/db_schema.png)
 
-## Objects Schema
-*data values will vary; these are examples with dummy data to showcase structure*
+## Object Movement
+*data values will vary; these are examples with sample data to showcase structure*
 
-### Raw Data -> Message Queue -> EvoELT
+### Raw Event -> Message Queue -> EvoELT
 ```json
 {
-  "labels": {"user_id": 3, "instance_id": 5},
+  "labels": ["user_id-3", "instance_id-5"],
   "data": "ABCD"
 }
 ```
-Stored as a raw item
+Stored as a raw event, in a sequence based on label (must be an array, order does not matter)
+***labels are optional
 
-### EvoELT -> Message Queue -> Transformation Application
+### EvoELT -> Message Queue -> Processing Application
 ```json
 {
-  "raw_item_id": "c87880c6-0506-49d1-a570-f50198f867fd",
-  "raw_item_labels": {"user_id": 3, "instance_id": 5}
+  "raw_event_id": "c87880c6-0506-49d1-a570-f50198f867fd",
+  "raw_sequence_labels": {"user_id": 3, "instance_id": 5}
 }
 ```
 
-### Transformation Application -> REST API -> EvoELT
+### Processing Application -> REST API -> EvoELT
 The transformation application should send a get request to EvoELT, for example:
 ```
-http://evoelt/api/v1/raw/collection/lookup?raw_item_id=c87880c6-0506-49d1-a570-f50198f867fd
+http://evoelt/api/v1/raw/sequence/lookup?raw_event_id=c87880c6-0506-49d1-a570-f50198f867fd
 ```
 returns
+
 ```json
 {
-  "raw_collection": {
-    "labels": {"user_id": 3, "instance_id": 5},
-    "items": [
-      {
-        "raw_item_id": "66873a44-cf8f-4156-8b54-dede2e6c116e",
-        "data": "A"
-      },
-      {
-        "raw_item_id": "9f4d2074-7c2d-4ba9-8f20-6be01abd8c5e",
-        "data": "AB"
-      },
-      {
-        "raw_item_id": "45f1af40-5d75-4375-b9f5-fe6d40b0a01a",
-        "data": "ABC"
-      },
-      {
-        "raw_item_id": "c87880c6-0506-49d1-a570-f50198f867fd",
-        "data": "ABCD"
-      }
-    ]
+  "labels": [
+    "user_id-3",
+    "instance_id-5"
+  ],
+  "events": [
+    {
+      "id": "c87880c6-0506-49d1-a570-f50198f867fd",
+      "data": "ABCD",
+      "order_id": 4,
+      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
+    },
+    {
+      "id": "45f1af40-5d75-4375-b9f5-fe6d40b0a01a",
+      "data": "ABC",
+      "order_id": 3,
+      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
+    },
+    {
+      "id": "9f4d2074-7c2d-4ba9-8f20-6be01abd8c5e",
+      "data": "AB",
+      "order_id": 2,
+      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
+    },
+    {
+      "id": "66873a44-cf8f-4156-8b54-dede2e6c116e",
+      "data": "A",
+      "order_id": 1,
+      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
+    }
+  ],
+  "total_events": 4,
+  "total_pages": 1,
+  "pageable": {
+    "page_offset": 0,
+    "page_number": 0,
+    "page_size": 100,
+    "sort": "rawSequenceOrderId: DESC"
   }
 }
 ```
 
-### Transformation Application -> Message Queue -> EvoELT
+The raw event and all predecessors in the raw sequence are returned.
+
+Additional GET query parameters exist for pagination. The key is below: `page` as (page_number(default:0)) and `size` as  (page_size)
+
+| Parameter Name | json key    | Default Value |
+|----------------|-------------|---------------|
+| raw_event_id   |             |               |
+| page           | page_number | 0             |
+| size           | page_size   | 100           |
+
+Use `total_pages` and `page_number` to paginate in your processing application.
+
+### Processing Application -> Message Queue -> EvoELT
 ```json
 {
-  "labels": {"user_id": 3, "instance_id": 5, "quarter": 2, "year": 2023, "transformation_application_version":  "5.0.1"},
-  "raw_item_id": "c87880c6-0506-49d1-a570-f50198f867fd",
+  "labels": ["user_id-3", "instance_id-5", "quarter-2", "year-2023", "transformation_application_version-5.0.1"],
+  "raw_event_id": "c87880c6-0506-49d1-a570-f50198f867fd",
   "data": "DCBA"
 }
 ```
-Stored as a transformed item
+Stored as a processed event in a sequence based on labels; same/different data can be stored with different labels.
 
-## Feedback and Support
-We value your feedback and aim to provide the best experience for our users. If you encounter any issues, have suggestions, or need assistance:
-- **Issues & Bug Reports**: If you find a bug or come across any issues, please check the [GitHub issue tracker](https://github.com/KenennaOkeke/EvoELT/issues?labels=bug&template=bug.md&title=) to see if it has already been reported, if not [open a new bug issue](https://github.com/KenennaOkeke/EvoELT/issues/new?labels=bug&template=bug.md&title=) to report them.
-- **Feature Requests**: Have a feature in mind? Please [open a new feature request issue](https://github.com/KenennaOkeke/EvoELT/issues/new?labels=enhancement&template=feature_request.md&title=) with the label 'enhancement'.
-- **Questions & Discussions**: For general questions, use the [discussions tab](https://github.com/KenennaOkeke/EvoELT/discussions) on GitHub.
+## Requirements
+- postgres
+- AWS SQS Queues /w a dead-letter queue for the consumption queue
+  - *A FIFO queue is recommended; the Standard SQS Queue is not recommended as duplicates may be sent, which may cause duplicate data.*
 
-For other inquiries or private concerns, feel free to email the project maintainer at [github@kenenna.com](mailto:github@kenenna.com)
+## Testing & Running Locally
+Run the following commands, execute:
+```
+docker network create myNetwork
+docker run -p 4566:4566 -d --env DEBUG=1 --env EAGER_SERVICE_LOADING=1 --network myNetwork --name localstack localstack/localstack:3.6.0
+docker run -p 5432:5432 -d --env POSTGRES_PASSWORD=password --network myNetwork --name postgres postgres:16
+```
+Then setup:
+- postgres:16
+  - Environment Variables: `POSTGRES_PASSWORD=password`
+  - Populate the `evoelt` schema under the `postgres` database with SQL in `app/db/init.sql`
+- localstack/localstack:3.6.0
+  - Environment Variables: `DEBUG=1`, `EAGER_SERVICE_LOADING=1`
+  - CLI:
+    - `awslocal sqs create-queue --queue-name EVOELT_CONSUMER.fifo --attributes "FifoQueue=true"`
+    - `awslocal sqs create-queue --queue-name EVOELT_PRODUCER.fifo --attributes "FifoQueue=true"`
+    - `awslocal sqs create-queue --queue-name dead-letter-queue`
+    - `awslocal sqs set-queue-attributes --queue-url http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/EVOELT_CONSUMER.fifo --attributes '{"RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:dead-letter-queue\",\"maxReceiveCount\":\"1\"}"}'`
 
-## Contributing
-We welcome contributions!
-<!-- Please see the [CONTRIBUTING](CONTRIBUTING.md) file for details on how to get started, and the [Code of Conduct](CODE_OF_CONDUCT.md) for community guidelines.-->
+Now local runs and tests will work.
 
-## Roadmap
-- Allow for all message queue consumption processes to be possible via REST APIs
-- Flag to enable logging of upserts (reprocessing) in the database
+## Dockerization
+```
+gradle bootBuildImage
+docker run -d -p 8080:8080 --env DB_URL --env QUEUE_ENDPOINT=http://localstack:4566 --env DB_URL=jdbc:postgresql://postgres:5432/postgres --env AWS_ACCESS_KEY_ID=sample --env AWS_SECRET_ACCESS_KEY=test --env AWS_REGION=us-east-1 --network myNetwork --name=evoelt org.kenenna/evoelt:latest
+```
+### Environment Variables
 
-## License
-EvoELT is open-sourced software licensed under the [MIT License](LICENSE).
+| Variable             | Description                   | Default        | Required |
+|----------------------|-------------------------------|----------------|----------|
+| `DB_URL`             | Database URL                  | jdbc:postgresql://localhost:5432/postgres             | Yes      |
+| `DB_SCHEMA`          | Database Schema               | evoelt             | Yes      |
+| `DB_USERNAME`        | Database user                 | postgres             | Yes      |
+| `DB_PASSWORD`        | Database password             | password             | Yes      |
+| `QUEUE_ENDPOINT`     | Message Queue Endpoint        | http://localhost:4566             | Yes      |
+| `CONSUMER_QUEUE_URL` | Message queue for listening | EVOELT_CONSUMER.fifo             | Yes      |
+| `PRODUCER_QUEUE_URL` | Message queue for sending ack | EVOELT_PRODUCER.fifo             | Yes      |
+| `AWS_ACCESS_KEY_ID` |  |              | Yes      |
+| `AWS_SECRET_ACCESS_KEY` |  |              | Yes      |
+| `AWS_REGION` |  |              | Yes      |
