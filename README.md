@@ -55,7 +55,7 @@ Stored as a raw event, in a sequence based on label (must be an array, order doe
 ```json
 {
   "raw_event_id": "c87880c6-0506-49d1-a570-f50198f867fd",
-  "raw_sequence_labels": {"user_id": 3, "instance_id": 5}
+  "raw_sequence_labels": ["user_id-3", "instance_id-5"]
 }
 ```
 
