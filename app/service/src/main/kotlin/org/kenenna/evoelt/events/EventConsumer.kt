@@ -15,7 +15,6 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.configurationprocessor.json.JSONObject
-import org.springframework.context.annotation.Import
 import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -80,11 +79,13 @@ class EventConsumer(
         rawEvent = rawEventRepository.save(rawEvent)
         log.info("Saved Raw Event {}", rawEvent.id)
 
-        val ackResponse = sqs.sendMessage(sqsProducerQueueUrl,
-            JSONObject()
+        val ackResponse = sqs.sendMessage(
+            queueUrl = sqsProducerQueueUrl,
+            message = JSONObject()
                 .put("raw_event_id", rawEvent.id)
                 .put("labels", rawSequence.labels)
-                .toString()
+                .toString(),
+
         )
         log.info("Sent raw SQS ACK {}", ackResponse.messageId())
     }

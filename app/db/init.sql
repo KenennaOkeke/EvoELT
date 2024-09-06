@@ -1,3 +1,6 @@
+CREATE SCHEMA IF NOT EXISTS evoelt;
+set schema 'evoelt';
+
 create table ee_raw_sequences
 (
     id uuid not null
@@ -20,7 +23,7 @@ create table ee_raw_events
         constraint ee_raw_events_ee_raw_sequences_id_fk
             references ee_raw_sequences,
     raw_sequence_order_id bigint not null,
-        data text not null,
+    data text not null,
     created_dt timestamp default now()
 );
 
