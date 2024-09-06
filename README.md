@@ -1,8 +1,11 @@
 ## About EvoELT
-EvoELT seamlessly bridges raw and processed events from batched processing! It ensures that your ELT warehouse remains dynamic and adaptable whether you're aiming for retrospective re-evaluations of data, recognizing intricate event patterns, learn from datasets, or enhance your event processing capabilities.
+EvoELT seamlessly bridges raw and processed events from batched processing! It ensures that your ELT warehouse remains dynamic and adaptable whether you're aiming to retrospectively re-evaluate data, recognize intricate event patterns, learn from datasets, or enhance your event processing capabilities.
 
 ### Technical Overview
-EvoELT is a flexible microservice designed to streamline the transfer of both a raw event, and its processed counterpart(s) into a database. Through AWS SQS (Amazon Simple Queue Service), it accommodates evolving transformations and processed versions. Historical transformations can be reprocessed and adjusted based on newer insights, all dependent on your processing application.
+EvoELT is a flexible microservice designed to streamline the transfer of both a raw event, and its processed counterpart(s) into a database. Through AWS SQS (Amazon Simple Queue Service), it accommodates evolving transformations and processed versions. Historical transformations can be reprocessed and adjusted based on newer insights, all dependent on your batch processing application.
+
+### Demo
+[ELTsim](https://github.com/KenennaOkeke/ELTsim) is a repository with a basic use case; a recommended read.
 
 ## Table of Contents
 - [About EvoELT](#about-evoelt)
@@ -23,17 +26,18 @@ EvoELT is a flexible microservice designed to streamline the transfer of both a 
 *Therefore, a single raw event may have multiple processed events.*
 
 ### High Level Architecture
-Assume we have the following raw events sent (A, AB, ABC, ABCD) and the following processed events received (A, BA, CBA, DCBA). With deep learning we can identify or learn the reverse string count pattern (XYZ -> ZYX) without having access to the event processing application. Once a pattern has been recognised, potential anomalies can be detected. This would allow for a correction later on, since maybe instead of receiving DCBA we should have received ZYWX.
+Assume the following raw events are sent (A, AB, ABC, ABCD) and the following processed events received (A, BA, CBA, DCBA). Deep learning may identify or learn the reverse string count pattern (XYZ -> ZYX) without having access to the event processing application. Once a pattern has been recognised, potential anomalies can be detected. This would allow for a correction later on, since maybe instead of receiving DCBA, ZYWX should have been received.
 
 ### Medium Level Architecture
-- Each raw event represents a score:game_session_number relationship.
-- After submitting raw events to EvoELT (via the score:game_session_number relationship), EvoELT receives three transformations (mean, median, and mode) from the batch processing application.
-- The processing application has access to a paginated list of previous plays (raw events) to generate statistics (processed events).
+- Each raw event represents a user:score:game_session_number relationship.
+- After submitting raw events to EvoELT (via the user:score:game_session_number relationship), EvoELT receives three transformations (mean, median, and mode) from the batch processing application.
+- The processing application has access to a paginated list of previous plays (raw events) to generate statistics, which is later sent back to EvoELT as processed events.
+- The use case could be a leaderboard, matchmaking system, etc.
 
 ### Low Level Architecture
 ![EvoELT Sequence Diagram](art/microservice_sequence_diagram_low.png)
 
-The external application (service A) send an event with the labels `[user_id: 3, object_id: 5]` to EvoELT via message queue. EvoELT stores the data/labels (grouped by label via a raw sequence) and lets your processing/transformation application (service B) know which `raw_event_id` to later fetch through a REST GET request (as two events may be sent at the same time, but we want a new transformation for each new event, and we may want to accurately order historical events used). The processing application fetches the raw sequence of events including labels from EvoELT via a REST API call. The processing application sends the result with labels(optional) and `raw_event_id` back to EvoELT via message queue; each label differentiation sent will create a new processed sequence; a new processed event would also be created linked to the raw_event_id.
+The external application (service A) send an event with the labels `[user_id: 3, object_id: 5]` to EvoELT via message queue. EvoELT stores the data/labels (grouped by label via a raw sequence) and lets the processing/transformation application (service B) know which `raw_event_id` to later fetch through a REST GET request (as two events may be sent at the same time, but a new transformation may be needed for each new event; accurately ordering historical events may be important). The processing application fetches the raw sequence of events including labels from EvoELT via a REST API call. The processing application sends the result with labels(optional) and `raw_event_id` back to EvoELT via message queue; each label differentiation sent will create a new processed sequence; a new processed event would also be created linked to the raw_event_id.
 
 ## DB Schema
 ![EvoELT DB Schema](art/db_schema.png)
@@ -62,7 +66,7 @@ Stored as a raw event, in a sequence based on label (must be an array, order doe
 ### Processing Application -> REST API -> EvoELT
 The transformation application should send a get request to EvoELT, for example:
 ```
-http://evoelt/api/v1/raw/sequence/lookup?raw_event_id=c87880c6-0506-49d1-a570-f50198f867fd
+http://evoelt/lookup/raw/sequence?raw_event_id=c87880c6-0506-49d1-a570-f50198f867fd
 ```
 returns
 
@@ -111,7 +115,7 @@ returns
 
 The raw event and all predecessors in the raw sequence are returned.
 
-Additional GET query parameters exist for pagination. The key is below: `page` as (page_number(default:0)) and `size` as  (page_size)
+Additional GET query parameters exist for pagination. The key is below:
 
 | Parameter Name | json key    | Default Value |
 |----------------|-------------|---------------|
@@ -119,7 +123,7 @@ Additional GET query parameters exist for pagination. The key is below: `page` a
 | page           | page_number | 0             |
 | size           | page_size   | 100           |
 
-Use `total_pages` and `page_number` to paginate in your processing application.
+Use `total_pages` and `page_number` to paginate.
 
 ### Processing Application -> Message Queue -> EvoELT
 ```json
@@ -145,11 +149,9 @@ docker run -p 5432:5432 -d --env POSTGRES_PASSWORD=password --network myNetwork 
 ```
 Then setup:
 - postgres:16
-  - Environment Variables: `POSTGRES_PASSWORD=password`
   - Populate the `evoelt` schema under the `postgres` database with SQL in `app/db/init.sql`
 - localstack/localstack:3.6.0
-  - Environment Variables: `DEBUG=1`, `EAGER_SERVICE_LOADING=1`
-  - CLI:
+  - CLI Commands:
     - `awslocal sqs create-queue --queue-name EVOELT_CONSUMER.fifo --attributes "FifoQueue=true"`
     - `awslocal sqs create-queue --queue-name EVOELT_PRODUCER.fifo --attributes "FifoQueue=true"`
     - `awslocal sqs create-queue --queue-name dead-letter-queue`
