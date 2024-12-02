@@ -1,17 +1,30 @@
 ## About EvoELT
-EvoELT seamlessly bridges raw and processed events from batched processing! It ensures that your ELT warehouse remains dynamic and adaptable whether you're aiming to retrospectively re-evaluate data, recognize intricate event patterns, learn from datasets, or enhance your event processing capabilities.
-
-### Technical Overview
-EvoELT is a flexible microservice designed to streamline the transfer of both a raw event, and its processed counterpart(s) into a database. Through AWS SQS (Amazon Simple Queue Service), it accommodates evolving transformations and processed versions. Historical transformations can be reprocessed and adjusted based on newer insights, all dependent on your batch processing application.
+EvoELT is a dynamic Kotlin microservice designed to streamline event processing in simulation games and other data-intensive applications. By bridging raw and processed event data, EvoELT empowers developers with adaptable ELT (Extract, Load, Transform) flows that support real-time insights and retrospective data re-evaluation. Built for scalability and precision, EvoELT enhances gameplay optimization, event tracking, and pattern recognition in complex systems.
 
 ### Demo
-[ELTsim](https://github.com/KenennaOkeke/ELTsim) is a repository with a basic use case; a recommended read.
+EvoELT serves as the backend engine for [ELTsim](https://github.com/KenennaOkeke/ELTsim), a UI tool for managing and analyzing Sims’ activities.
+
+Through EvoELT, raw activity schedules are processed and transformed. Insights are generated to improve metrics like happiness, energy, and relationship scores. Historical and real-time data empower players to make data-driven decisions for character optimization.
+
+For more details, explore the [ELTsim](https://github.com/KenennaOkeke/ELTsim) README.
+
+
+### Technical Overview
+#### Core Concepts
+EvoELT’s architecture is built around event sequences, enabling flexible transformations:
+- Raw Events: Input data representing actions, metrics, or states.
+- Processed Events: Transformed data, such as aggregated statistics or anomaly detection.
+- Sequences: Grouped events by labels, allowing structured analysis and processing.
+#### Workflow Overview
+- Event Submission: Raw events are sent to EvoELT through AWS SQS queues.
+- Transformation: A processing application computes transformations.
+- Data Storage: Raw and processed events are stored in a PostgreSQL database for querying and re-evaluation.
 
 ## Table of Contents
 - [About EvoELT](#about-evoelt)
 - [Use Cases](#architecture-and-uses)
 - [DB Schema](#db-schema)
-- [Object Movement](#object-movement)
+- [Event Data Flow](#event-data-flow)
 - [Requirements](#requirements)
 - [Testing & Running Locally](#testing--running-locally)
 - [Dockerization](#dockerization)
@@ -26,30 +39,36 @@ EvoELT is a flexible microservice designed to streamline the transfer of both a 
 *Therefore, a single raw event may have multiple processed events.*
 
 ### High Level Architecture
-Assume the following raw events are sent (A, AB, ABC, ABCD) and the following processed events received (A, BA, CBA, DCBA). Deep learning may identify or learn the reverse string count pattern (XYZ -> ZYX) without having access to the event processing application. Once a pattern has been recognised, potential anomalies can be detected. This would allow for a correction later on, since maybe instead of receiving DCBA, ZYWX should have been received.
+EvoELT acts as the bridge between raw data input and actionable insights. For example:
+
+Input: A raw sequence of events, such as [A, AB, ABC, ABCD].
+Processing: Transformation logic applied, yielding processed events [A, BA, CBA, DCBA].
+Output: Anomalies and trends detected for actionable improvements.
+
 
 ### Medium Level Architecture
-- Each raw event represents a user:score:game_session_number relationship.
-- After submitting raw events to EvoELT (via the user:score:game_session_number relationship), EvoELT receives three transformations (mean, median, and mode) from the batch processing application.
-- The processing application has access to a paginated list of previous plays (raw events) to generate statistics, which is later sent back to EvoELT as processed events.
-- The use case could be a leaderboard, matchmaking system, etc.
+EvoELT supports a variety of gaming use cases:
+
+Leaderboards: Transform player scores into ranked data.
+Matchmaking: Process historical player statistics to improve pairing algorithms.
+In-Game Analytics: Analyze patterns to enhance player experience.
 
 ### Low Level Architecture
 ![EvoELT Sequence Diagram](art/microservice_sequence_diagram_low.png)
 
-The external application (service A) send an event with the labels `[user_id: 3, object_id: 5]` to EvoELT via message queue. EvoELT stores the data/labels (grouped by label via a raw sequence) and lets the processing/transformation application (service B) know which `raw_event_id` to later fetch through a REST GET request (as two events may be sent at the same time, but a new transformation may be needed for each new event; accurately ordering historical events may be important). The processing application fetches the raw sequence of events including labels from EvoELT via a REST API call. The processing application sends the result with labels(optional) and `raw_event_id` back to EvoELT via message queue; each label differentiation sent will create a new processed sequence; a new processed event would also be created linked to the raw_event_id.
+Raw events are submitted with metadata and sequence labels via SQS. The processing application retrieves sequences, applies transformations, and sends back processed events. These are stored and accessible through REST API endpoints, with support for pagination and historical data reprocessing.
 
 ## DB Schema
 ![EvoELT DB Schema](art/db_schema.png)
 
-## Object Movement
+## Event Data Flow
 *data values will vary; these are examples with sample data to showcase structure*
 
 ### Raw Event -> Message Queue -> EvoELT
 ```json
 {
-  "labels": ["user_id-3", "instance_id-5"],
-  "data": "ABCD"
+  "labels": ["character_id-abc", "household_id-xyz", "activity_id-123"],
+  "data": "{\"activity\": \"crafting\", \"duration_minutes\": 120, \"energy_cost\": 15, \"happiness_gain\": 30}"
 }
 ```
 Stored as a raw event, in a sequence based on label (must be an array, order does not matter)
@@ -59,7 +78,7 @@ Stored as a raw event, in a sequence based on label (must be an array, order doe
 ```json
 {
   "raw_event_id": "c87880c6-0506-49d1-a570-f50198f867fd",
-  "raw_sequence_labels": ["user_id-3", "instance_id-5"]
+  "raw_sequence_labels": ["character_id-abc", "household_id-xyz", "activity_id-123"]
 }
 ```
 
@@ -73,36 +92,25 @@ returns
 ```json
 {
   "labels": [
-    "user_id-3",
-    "instance_id-5"
+    "character_id-abc",
+    "household_id-xyz",
+    "activity_id-123"
   ],
   "events": [
     {
       "id": "c87880c6-0506-49d1-a570-f50198f867fd",
-      "data": "ABCD",
-      "order_id": 4,
-      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
-    },
-    {
-      "id": "45f1af40-5d75-4375-b9f5-fe6d40b0a01a",
-      "data": "ABC",
-      "order_id": 3,
-      "created_dt": "2021-00-00 00:00:00.000000 +00:00"
-    },
-    {
-      "id": "9f4d2074-7c2d-4ba9-8f20-6be01abd8c5e",
-      "data": "AB",
+      "data": "{\"activity\": \"crafting\", \"duration_minutes\": 120, \"energy_cost\": 15, \"happiness_gain\": 30}",
       "order_id": 2,
       "created_dt": "2021-00-00 00:00:00.000000 +00:00"
     },
     {
-      "id": "66873a44-cf8f-4156-8b54-dede2e6c116e",
-      "data": "A",
+      "id": "45f1af40-5d75-4375-b9f5-fe6d40b0a01a",
+      "data": "{\"activity\": \"crafting\", \"duration_minutes\": 30, \"energy_cost\": 20, \"happiness_gain\": 10}",
       "order_id": 1,
       "created_dt": "2021-00-00 00:00:00.000000 +00:00"
     }
   ],
-  "total_events": 4,
+  "total_events": 2,
   "total_pages": 1,
   "pageable": {
     "page_offset": 0,
@@ -128,9 +136,14 @@ Use `total_pages` and `page_number` to paginate.
 ### Processing Application -> Message Queue -> EvoELT
 ```json
 {
-  "labels": ["user_id-3", "instance_id-5", "quarter-2", "year-2023", "transformation_application_version-5.0.1"],
+  "labels": [
+    "character_id-abc",
+    "household_id-xyz",
+    "activity_id-123",
+    "transformation_version-1.0.0"
+  ],
   "raw_event_id": "c87880c6-0506-49d1-a570-f50198f867fd",
-  "data": "DCBA"
+  "data": "{\"average_energy_cost\": 17.5, \"total_happiness_gain\": 40}"
 }
 ```
 Stored as a processed event in a sequence based on labels; same/different data can be stored with different labels.
